@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agente de Ofertas de Viagem ✈️</title>
+
+  <!-- JSZip para gerar XLSX -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0a0f1e;
+      --bg2:        #0f1829;
+      --surface:    rgba(255,255,255,0.04);
+      --border:     rgba(255,255,255,0.08);
+      --border2:    rgba(255,255,255,0.04);
+      --blue:       #3b82f6;
+      --indigo:     #6366f1;
+      --teal:       #0ea5e9;
+      --green:      #10b981;
+      --green-lt:   #34d399;
+      --purple:     #8b5cf6;
+      --text:       #e2e8f0;
+      --text2:      #94a3b8;
+      --text3:      #64748b;
+      --text4:      #475569;
+      --danger:     #ef4444;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    /* ── Top accent bar ── */
+    .accent-bar {
+      height: 3px;
+      background: linear-gradient(90deg, var(--teal), var(--blue), var(--indigo), var(--purple));
+    }
+
+    /* ── Header ── */
+    header {
+      background: rgba(10,15,30,0.97);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-inner {
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .header-brand { display: flex; align-items: center; gap: 10px; }
+    .header-brand .icon { font-size: 28px; }
+    .header-brand h1 {
+      font-size: 20px;
+      font-weight: 800;
+      color: #f1f5f9;
+      letter-spacing: -0.4px;
+    }
+    .header-brand p { font-size: 12px; color: var(--text3); margin-top: 2px; }
+
+    .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    .last-run-badge {
+      font-size: 12px;
+      color: var(--text3);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all .2s;
+      white-space: nowrap;
+    }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--blue), var(--indigo));
+      color: #fff;
+      box-shadow: 0 4px 18px rgba(99,102,241,.35);
+    }
+    .btn-primary:not(:disabled):hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 22px rgba(99,102,241,.5);
+    }
+
+    .btn-excel {
+      background: rgba(16,185,129,.12);
+      border: 1px solid rgba(16,185,129,.35);
+      color: var(--green-lt);
+    }
+    .btn-excel:not(:disabled):hover {
+      background: rgba(16,185,129,.22);
+    }
+    .btn-excel:disabled {
+      background: var(--surface);
+      border-color: var(--border);
+      color: var(--text4);
+    }
+
+    /* ── Layout ── */
+    main { max-width: 1140px; margin: 0 auto; padding: 28px 24px 60px; }
+
+    /* ── API Key section ── */
+    .api-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-bottom: 22px;
+    }
+    .api-section h2 { font-size: 14px; font-weight: 700; color: var(--text2); margin-bottom: 10px; }
+
+    .api-row { display: flex; gap: 10px; align-items: center; }
+    .api-input {
+      flex: 1;
+      padding: 9px 14px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      font-family: monospace;
+      transition: border-color .2s;
+    }
+    .api-input:focus { border-color: var(--blue); }
+    .api-note { font-size: 12px; color: var(--text3); margin-top: 8px; }
+    .api-note a { color: var(--blue); }
+
+    /* ── Progress bar ── */
+    .progress-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 22px;
+      display: none;
+    }
+    .progress-wrap.visible { display: block; }
+    .progress-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .progress-label { font-size: 13px; color: var(--text2); }
+    .progress-pct { font-size: 13px; color: var(--indigo); font-weight: 700; }
+    .progress-track {
+      background: rgba(255,255,255,.06);
+      border-radius: 99px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--blue), var(--indigo));
+      border-radius: 99px;
+      width: 0%;
+      transition: width .4s ease;
+    }
+
+    /* ── Error box ── */
+    .error-box {
+      background: rgba(239,68,68,.1);
+      border: 1px solid rgba(239,68,68,.3);
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      color: #fca5a5;
+      font-size: 13px;
+      display: none;
+    }
+    .error-box.visible { display: block; }
+
+    /* ── Stats grid ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .stat-icon { font-size: 22px; margin-bottom: 6px; }
+    .stat-value {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .stat-label { font-size: 12px; color: var(--text3); margin-top: 5px; }
+
+    /* ── Filters ── */
+    .filters {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .search-input {
+      flex: 1 1 220px;
+      padding: 9px 14px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .search-input:focus { border-color: var(--blue); }
+    .filter-btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text2);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .filter-btn.active {
+      border-color: var(--blue);
+      background: rgba(59,130,246,.2);
+      color: #60a5fa;
+    }
+
+    /* ── Table ── */
+    .table-wrap {
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--border2);
+      border-radius: 14px;
+      overflow: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead tr {
+      background: rgba(255,255,255,.05);
+    }
+    th {
+      padding: 12px 16px;
+      text-align: left;
+      color: var(--text3);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      border-bottom: 1px solid var(--border2);
+      white-space: nowrap;
+    }
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255,255,255,.03);
+      vertical-align: middle;
+    }
+    tbody tr:hover { background: rgba(255,255,255,.04); }
+    tbody tr:last-child td { border-bottom: none; }
+
+    .td-fonte { white-space: nowrap; }
+    .td-destino { font-weight: 700; color: #e2e8f0; }
+    .td-fornecedor { color: var(--text2); }
+    .td-valor { font-weight: 800; color: var(--green-lt); font-size: 14px; white-space: nowrap; }
+    .td-oferta { color: #cbd5e1; max-width: 280px; }
+    .td-date { color: var(--text4); font-size: 11px; white-space: nowrap; }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid;
+    }
+    .badge-blue  { background: rgba(59,130,246,.12); color: #60a5fa; border-color: rgba(59,130,246,.25); }
+    .badge-purple{ background: rgba(139,92,246,.12); color: #a78bfa; border-color: rgba(139,92,246,.25); }
+
+    .link-btn {
+      display: inline-block;
+      padding: 3px 10px;
+      background: rgba(59,130,246,.1);
+      border: 1px solid rgba(59,130,246,.2);
+      border-radius: 6px;
+      color: #60a5fa;
+      font-size: 11px;
+      text-decoration: none;
+      transition: background .2s;
+    }
+    .link-btn:hover { background: rgba(59,130,246,.22); }
+
+    /* ── Empty state ── */
+    .empty {
+      text-align: center;
+      padding: 70px 20px;
+      color: var(--text4);
+    }
+    .empty .big-icon { font-size: 64px; margin-bottom: 14px; }
+    .empty h3 { font-size: 16px; font-weight: 700; color: var(--text3); }
+    .empty p { font-size: 13px; margin-top: 6px; }
+
+    /* ── Schedule info ── */
+    .schedule-info {
+      margin-top: 24px;
+      padding: 14px 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .schedule-info .si-icon { font-size: 20px; flex-shrink: 0; }
+    .schedule-info h4 { font-size: 13px; color: var(--text2); font-weight: 700; }
+    .schedule-info p { font-size: 12px; color: var(--text4); margin-top: 4px; }
+
+    /* ── Spinner ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.25);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: inline-block;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .header-inner { padding: 12px 16px; }
+      main { padding: 16px 14px 50px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<div class="accent-bar"></div>
+
+<!-- HEADER -->
+<header>
+  <div class="header-inner">
+    <div class="header-brand">
+      <span class="icon">✈️</span>
+      <div>
+        <h1>Agente de Ofertas de Viagem</h1>
+        <p>Monitora Melhores Destinos &amp; Passagens Imperdíveis diariamente</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <span class="last-run-badge" id="lastRunBadge" style="display:none"></span>
+      <button class="btn btn-excel" id="btnExcel" disabled onclick="exportExcel()">📥 Exportar Excel</button>
+      <button class="btn btn-primary" id="btnRun" onclick="runScraping()">▶ Coletar Agora</button>
+    </div>
+  </div>
+</header>
+
+<!-- MAIN -->
+<main>
+
+  <!-- API KEY -->
+  <div class="api-section">
+    <h2>🔑 Chave da API Anthropic</h2>
+    <div class="api-row">
+      <input class="api-input" type="password" id="apiKeyInput"
+        placeholder="sk-ant-api03-..." autocomplete="off"
+        oninput="onApiKeyChange()" />
+      <button class="btn btn-excel" onclick="saveApiKey()">Salvar</button>
+    </div>
+    <p class="api-note">
+      Necessária para o agente consultar os sites. Obtenha em
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.
+      A chave fica salva apenas no <em>localStorage</em> do seu navegador.
+    </p>
+  </div>
+
+  <!-- PROGRESS -->
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-header">
+      <span class="progress-label" id="progressLabel">Iniciando...</span>
+      <span class="progress-pct" id="progressPct">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+  </div>
+
+  <!-- ERROR -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- STATS -->
+  <div class="stats-grid" id="statsGrid">
+    <div class="stat-card">
+      <div class="stat-icon">🎯</div>
+      <div class="stat-value" id="statTotal" style="color:#3b82f6">0</div>
+      <div class="stat-label">Total de Ofertas</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🌐</div>
+      <div class="stat-value" id="statMD" style="color:#8b5cf6">0</div>
+      <div class="stat-label">Melhores Destinos</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🌐</div>
+      <div class="stat-value" id="statPI" style="color:#8b5cf6">0</div>
+      <div class="stat-label">Passagens Imperd.</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📍</div>
+      <div class="stat-value" id="statDestinos" style="color:#10b981">0</div>
+      <div class="stat-label">Destinos Únicos</div>
+    </div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filters" id="filtersRow" style="display:none">
+    <input class="search-input" type="text" id="searchInput"
+      placeholder="🔍 Buscar destino, fornecedor, oferta..."
+      oninput="renderTable()" />
+    <button class="filter-btn active" data-fonte="Todos" onclick="setFonte(this)">Todos</button>
+    <button class="filter-btn" data-fonte="Melhores Destinos" onclick="setFonte(this)">Melhores Destinos</button>
+    <button class="filter-btn" data-fonte="Passagens Imperdíveis" onclick="setFonte(this)">Passagens Imperdíveis</button>
+  </div>
+
+  <!-- TABLE -->
+  <div id="tableContainer">
+    <div class="empty" id="emptyState">
+      <div class="big-icon">✈️</div>
+      <h3>Nenhuma oferta coletada ainda</h3>
+      <p>Insira sua chave API e clique em "Coletar Agora" para iniciar a varredura</p>
+    </div>
+  </div>
+
+  <!-- SCHEDULE INFO -->
+  <div class="schedule-info">
+    <span class="si-icon">🕐</span>
+    <div>
+      <h4>Coleta Automática Diária</h4>
+      <p id="scheduleText">
+        Ao abrir esta página, o agente verifica se já passaram 24h desde a última coleta e dispara automaticamente.
+        Mantenha a aba aberta ou acesse diariamente para manter as ofertas atualizadas.
+      </p>
+    </div>
+  </div>
+
+</main>
+
+<!-- ─────────────────────── JAVASCRIPT ─────────────────────── -->
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+const STORAGE_KEY  = 'travel_deals_v2';
+const APIKEY_KEY   = 'travel_deals_apikey';
+const SITES = [
+  { name: 'Melhores Destinos',      url: 'https://www.melhoresdestinos.com.br' },
+  { name: 'Passagens Imperdíveis',  url: 'https://www.passagensimperdiveis.com.br' },
+];
+
+let state        = { lastRun: null, deals: [] };
+let activeFonte  = 'Todos';
+let isRunning    = false;
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+function loadState() {
+  try { const r = localStorage.getItem(STORAGE_KEY); if (r) state = JSON.parse(r); } catch {}
+}
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+function loadApiKey() {
+  return localStorage.getItem(APIKEY_KEY) || '';
+}
+function saveApiKey() {
+  const k = document.getElementById('apiKeyInput').value.trim();
+  if (!k) { alert('Digite uma chave API válida.'); return; }
+  localStorage.setItem(APIKEY_KEY, k);
+  alert('Chave salva com sucesso! ✅');
+}
+function onApiKeyChange() {} // live validation could go here
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+function setProgress(label, pct) {
+  document.getElementById('progressLabel').textContent = label;
+  document.getElementById('progressPct').textContent   = pct + '%';
+  document.getElementById('progressFill').style.width  = pct + '%';
+}
+function showProgress(show) {
+  document.getElementById('progressWrap').classList.toggle('visible', show);
+}
+function showError(msg) {
+  const el = document.getElementById('errorBox');
+  if (msg) { el.textContent = '⚠️ ' + msg; el.classList.add('visible'); }
+  else       el.classList.remove('visible');
+}
+function escH(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Scraping via Anthropic API ────────────────────────────────────────────────
+async function fetchDeals(apiKey, siteUrl, siteName) {
+  const prompt = `Você é um agente especialista em extração de dados de sites de passagens e viagens.
+
+Acesse e analise o site "${siteUrl}" usando web search e extraia TODAS as ofertas de viagens/passagens disponíveis na página principal e nas seções de promoções.
+
+Para cada oferta encontrada, retorne um objeto JSON com os campos:
+- "destino": cidade/país de destino (ex: "Buenos Aires", "Lisboa", "Nova York")
+- "fornecedor": companhia aérea, hotel ou operadora (ex: "LATAM", "Azul", "GOL", "CVC", etc.)
+- "valor": preço em texto como aparece no site (ex: "R$ 899", "a partir de R$ 1.200")
+- "oferta": descrição resumida da oferta (ex: "Voo ida e volta GRU > LIS", "Pacote 7 noites all inclusive")
+- "link": URL completa da oferta (se não disponível, use "${siteUrl}")
+
+Responda SOMENTE com um array JSON válido. Sem markdown, sem backticks, sem texto extra.
+Exemplo: [{"destino":"Buenos Aires","fornecedor":"LATAM","valor":"R$ 899","oferta":"Voo ida e volta GRU > EZE","link":"https://..."}]
+Se não houver ofertas retorne: []`;
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type':       'application/json',
+      'x-api-key':          apiKey,
+      'anthropic-version':  '2023-06-01',
+    },
+    body: JSON.stringify({
+      model:      'claude-sonnet-4-20250514',
+      max_tokens: 4000,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `HTTP ${resp.status}`);
+  }
+
+  const data = await resp.json();
+  const text = (data.content || [])
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('\n');
+
+  const m = text.match(/\[[\s\S]*\]/);
+  if (!m) return [];
+
+  const parsed = JSON.parse(m[0]);
+  const now    = new Date().toISOString();
+  return parsed.map(d => ({ ...d, fonte: siteName, coletadoEm: now }));
+}
+
+// ── Run Scraping ──────────────────────────────────────────────────────────────
+async function runScraping() {
+  if (isRunning) return;
+
+  const apiKey = document.getElementById('apiKeyInput').value.trim() || loadApiKey();
+  if (!apiKey || !apiKey.startsWith('sk-ant')) {
+    showError('Chave API inválida ou não informada. Insira uma chave Anthropic válida (sk-ant-...).');
+    return;
+  }
+
+  isRunning = true;
+  showError('');
+  showProgress(true);
+  setProgress('Iniciando coleta...', 0);
+  document.getElementById('btnRun').disabled = true;
+  document.getElementById('btnRun').innerHTML = '<span class="spinner"></span> Coletando...';
+
+  const allDeals = [];
+
+  try {
+    for (let i = 0; i < SITES.length; i++) {
+      const site = SITES[i];
+      const pct  = Math.round((i / SITES.length) * 80);
+      setProgress(`Analisando ${site.name}...`, pct);
+      try {
+        const deals = await fetchDeals(apiKey, site.url, site.name);
+        allDeals.push(...deals);
+      } catch (e) {
+        console.warn('Erro em ' + site.name, e);
+      }
+    }
+
+    setProgress('Salvando resultados...', 90);
+    state = { lastRun: new Date().toISOString(), deals: allDeals };
+    saveState();
+    setProgress('Concluído!', 100);
+
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    isRunning = false;
+    document.getElementById('btnRun').disabled = false;
+    document.getElementById('btnRun').innerHTML = '▶ Coletar Agora';
+    setTimeout(() => showProgress(false), 2500);
+    refreshUI();
+  }
+}
+
+// ── UI Refresh ────────────────────────────────────────────────────────────────
+function setFonte(btn) {
+  activeFonte = btn.dataset.fonte;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderTable();
+}
+
+function getFiltered() {
+  const term = (document.getElementById('searchInput')?.value || '').toLowerCase();
+  return state.deals.filter(d => {
+    const mFonte  = activeFonte === 'Todos' || d.fonte === activeFonte;
+    const mSearch = !term ||
+      (d.destino   || '').toLowerCase().includes(term) ||
+      (d.fornecedor|| '').toLowerCase().includes(term) ||
+      (d.oferta    || '').toLowerCase().includes(term) ||
+      (d.valor     || '').toLowerCase().includes(term);
+    return mFonte && mSearch;
+  });
+}
+
+function renderTable() {
+  const filtered = getFiltered();
+  const container = document.getElementById('tableContainer');
+  const emptyEl   = document.getElementById('emptyState');
+
+  if (state.deals.length === 0) {
+    container.innerHTML = '';
+    if (!document.getElementById('emptyState')) container.appendChild(emptyEl);
+    else emptyEl.style.display = 'block';
+    return;
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div class="empty"><div class="big-icon">🔍</div><h3>Nenhum resultado</h3><p>Tente outros termos de busca.</p></div>`;
+    return;
+  }
+
+  const rows = filtered.map((d, i) => `
+    <tr>
+      <td class="td-fonte">
+        <span class="badge ${d.fonte === 'Melhores Destinos' ? 'badge-blue' : 'badge-purple'}">
+          ${d.fonte === 'Melhores Destinos' ? 'Melhores D.' : 'Pass. Imp.'}
+        </span>
+      </td>
+      <td class="td-destino">${escH(d.destino) || '—'}</td>
+      <td class="td-fornecedor">${escH(d.fornecedor) || '—'}</td>
+      <td class="td-valor">${escH(d.valor) || '—'}</td>
+      <td class="td-oferta">${escH(d.oferta) || '—'}</td>
+      <td>
+        ${d.link
+          ? `<a class="link-btn" href="${escH(d.link)}" target="_blank" rel="noreferrer">Acessar →</a>`
+          : '—'}
+      </td>
+      <td class="td-date">${fmtDate(d.coletadoEm)}</td>
+    </tr>`).join('');
+
+  container.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Fonte</th><th>Destino</th><th>Fornecedor</th>
+            <th>Valor</th><th>Oferta</th><th>Link</th><th>Coletado em</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function refreshUI() {
+  const { deals, lastRun } = state;
+
+  // Last run badge
+  const badge = document.getElementById('lastRunBadge');
+  if (lastRun) { badge.textContent = '🕐 Última coleta: ' + fmtDate(lastRun); badge.style.display = 'inline-block'; }
+
+  // Stats
+  document.getElementById('statTotal').textContent    = deals.length;
+  document.getElementById('statMD').textContent       = deals.filter(d => d.fonte === 'Melhores Destinos').length;
+  document.getElementById('statPI').textContent       = deals.filter(d => d.fonte === 'Passagens Imperdíveis').length;
+  document.getElementById('statDestinos').textContent = new Set(deals.map(d => d.destino)).size;
+
+  // Filters
+  document.getElementById('filtersRow').style.display = deals.length > 0 ? 'flex' : 'none';
+
+  // Excel button
+  document.getElementById('btnExcel').disabled = deals.length === 0;
+
+  // Schedule note
+  if (lastRun) {
+    const next = new Date(new Date(lastRun).getTime() + 24 * 3600000);
+    document.getElementById('scheduleText').textContent =
+      `Ao abrir esta página o agente verifica se passaram 24h. ` +
+      `Próxima coleta automática prevista: ${fmtDate(next.toISOString())}.`;
+  }
+
+  renderTable();
+}
+
+// ── Excel Export ──────────────────────────────────────────────────────────────
+function toExcelFiles(deals) {
+  const escX = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const headers = ['#','Data Coleta','Fonte','Destino','Fornecedor','Valor','Oferta','Link'];
+  const rows    = deals.map((d, i) => [
+    i + 1, fmtDate(d.coletadoEm), d.fonte, d.destino,
+    d.fornecedor, d.valor, d.oferta, d.link,
+  ]);
+
+  const strings = [];
+  const si = s => { const str = String(s ?? ''); let idx = strings.indexOf(str); if (idx < 0) { idx = strings.length; strings.push(str); } return idx; };
+  headers.forEach(si);
+  rows.forEach(r => r.forEach((c, ci) => ci !== 0 && si(String(c ?? ''))));
+
+  const colLetter = n => { let s = ''; n++; while (n > 0) { s = String.fromCharCode(64 + (n % 26 || 26)) + s; n = Math.floor((n-1)/26); } return s; };
+  const buildCell = (col, row, val) => {
+    const ref = `${colLetter(col)}${row}`;
+    const num = parseFloat(String(val).replace(/[^\d.,]/g,'').replace(',','.'));
+    if (!isNaN(num) && String(val).trim() !== '' && col === 0) return `<c r="${ref}"><v>${num}</v></c>`;
+    return `<c r="${ref}" t="s"><v>${si(String(val ?? ''))}</v></c>`;
+  };
+
+  let sheetRows = `<row r="1">${headers.map((h,ci) => buildCell(ci, 1, h)).join('')}</row>`;
+  rows.forEach((r, ri) => { sheetRows += `<row r="${ri+2}">${r.map((c,ci) => buildCell(ci, ri+2, c)).join('')}</row>`; });
+
+  return {
+    '[Content_Types].xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>`,
+    '_rels/.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Ofertas" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    'xl/_rels/workbook.xml.rels': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>`,
+    'xl/worksheets/sheet1.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`,
+    'xl/sharedStrings.xml': `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${strings.length}" uniqueCount="${strings.length}">${strings.map(s => `<si><t xml:space="preserve">${escX(s)}</t></si>`).join('')}</sst>`,
+  };
+}
+
+async function exportExcel() {
+  if (!state.deals.length) return;
+  const files = toExcelFiles(state.deals);
+  const zip   = new JSZip();
+  for (const [path, content] of Object.entries(files)) zip.file(path, content);
+  const blob  = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url   = URL.createObjectURL(blob);
+  const a     = Object.assign(document.createElement('a'), { href: url, download: `ofertas_viagem_${new Date().toISOString().slice(0,10)}.xlsx` });
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Auto-schedule ─────────────────────────────────────────────────────────────
+function checkAutoRun() {
+  const { lastRun } = state;
+  if (!lastRun) return;
+  const diffH = (Date.now() - new Date(lastRun).getTime()) / 3600000;
+  if (diffH >= 24) {
+    console.log('24h passadas — iniciando coleta automática...');
+    runScraping();
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(function init() {
+  loadState();
+  const saved = loadApiKey();
+  if (saved) document.getElementById('apiKeyInput').value = saved;
+  refreshUI();
+  checkAutoRun();
+})();
+</script>
+</body>
+</html>
