@@ -554,9 +554,10 @@ Se não houver ofertas retorne: []`;
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
-      'Content-Type':       'application/json',
-      'x-api-key':          apiKey,
-      'anthropic-version':  '2023-06-01',
+      'Content-Type':                            'application/json',
+      'x-api-key':                               apiKey,
+      'anthropic-version':                       '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
       model:      'claude-sonnet-4-20250514',
@@ -568,7 +569,11 @@ Se não houver ofertas retorne: []`;
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err?.error?.message || `HTTP ${resp.status}`);
+    const msg = err?.error?.message || `HTTP ${resp.status}`;
+    if (resp.status === 401) throw new Error('Chave API inválida ou expirada (401). Verifique em console.anthropic.com.');
+    if (resp.status === 403) throw new Error('Acesso negado (403). A chave pode não ter permissão para web search.');
+    if (resp.status === 429) throw new Error('Limite de requisições atingido (429). Aguarde alguns minutos e tente novamente.');
+    throw new Error(msg);
   }
 
   const data = await resp.json();
@@ -577,11 +582,13 @@ Se não houver ofertas retorne: []`;
     .map(b => b.text)
     .join('\n');
 
-  const m = text.match(/\[[\s\S]*\]/);
-  if (!m) return [];
+  const m = text.match(/\[[\s\S]*?\]/s) || text.match(/\[[\s\S]*\]/);
+  if (!m) { console.warn('Sem JSON para', siteName, '— resposta:', text.slice(0, 400)); return []; }
 
-  const parsed = JSON.parse(m[0]);
-  const now    = new Date().toISOString();
+  let parsed;
+  try { parsed = JSON.parse(m[0]); } catch(e) { console.warn('JSON inválido:', e); return []; }
+
+  const now = new Date().toISOString();
   return parsed.map(d => ({ ...d, fonte: siteName, coletadoEm: now }));
 }
 
@@ -590,8 +597,12 @@ async function runScraping() {
   if (isRunning) return;
 
   const apiKey = document.getElementById('apiKeyInput').value.trim() || loadApiKey();
-  if (!apiKey || !apiKey.startsWith('sk-ant')) {
-    showError('Chave API inválida ou não informada. Insira uma chave Anthropic válida (sk-ant-...).');
+  if (!apiKey) {
+    showError('⚠️ Chave API não informada. Insira a chave no campo acima e clique em Salvar.');
+    return;
+  }
+  if (!apiKey.startsWith('sk-ant')) {
+    showError('⚠️ Chave API com formato inválido. Deve começar com "sk-ant-...".');
     return;
   }
 
@@ -613,7 +624,8 @@ async function runScraping() {
         const deals = await fetchDeals(apiKey, site.url, site.name);
         allDeals.push(...deals);
       } catch (e) {
-        console.warn('Erro em ' + site.name, e);
+        console.error('Erro em ' + site.name, e);
+        showError(`Erro em "${site.name}": ${e.message}`);
       }
     }
 
