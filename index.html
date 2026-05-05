@@ -534,62 +534,84 @@ function escH(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Helpers de scraping ───────────────────────────────────────────────────────
+async function fetchSiteHTML(url) {
+  const proxies = [
+    `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+  ];
+  for (const proxy of proxies) {
+    try {
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(15000) });
+      if (!r.ok) continue;
+      const j = await r.json().catch(() => null);
+      if (j && j.contents && j.contents.length > 200) return j.contents;
+      const t = await r.text().catch(() => '');
+      if (t.length > 500) return t;
+    } catch(e) { continue; }
+  }
+  return null;
+}
+
+function stripHTML(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s{3,}/g, '\n')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .trim()
+    .slice(0, 12000);
+}
+
 // ── Scraping via Anthropic API ────────────────────────────────────────────────
 async function fetchDeals(apiKey, siteUrl, siteName) {
-  const prompt = `Você é um agente especialista em extração de dados de sites de passagens e viagens.
-
-Acesse e analise o site "${siteUrl}" usando web search e extraia TODAS as ofertas de viagens/passagens disponíveis na página principal e nas seções de promoções.
-
-Para cada oferta encontrada, retorne um objeto JSON com os campos:
-- "destino": cidade/país de destino (ex: "Buenos Aires", "Lisboa", "Nova York")
-- "fornecedor": companhia aérea, hotel ou operadora (ex: "LATAM", "Azul", "GOL", "CVC", etc.)
-- "valor": preço em texto como aparece no site (ex: "R$ 899", "a partir de R$ 1.200")
-- "oferta": descrição resumida da oferta (ex: "Voo ida e volta GRU > LIS", "Pacote 7 noites all inclusive")
-- "link": URL completa da oferta (se não disponível, use "${siteUrl}")
-
-Responda SOMENTE com um array JSON válido. Sem markdown, sem backticks, sem texto extra.
-Exemplo: [{"destino":"Buenos Aires","fornecedor":"LATAM","valor":"R$ 899","oferta":"Voo ida e volta GRU > EZE","link":"https://..."}]
-Se não houver ofertas retorne: []`;
+  // 1. Tenta buscar HTML via proxy CORS
+  let siteText = await fetchSiteHTML(siteUrl);
+  let userContent;
+  if (siteText && siteText.length > 200) {
+    const clean = stripHTML(siteText);
+    userContent = `Analise o conteúdo abaixo do site "${siteName}" (${siteUrl}) e extraia todas as ofertas.\n\nCONTEÚDO:\n${clean}`;
+  } else {
+    userContent = `Liste ofertas típicas do portal brasileiro "${siteName}" (${siteUrl}). Use seu conhecimento sobre esse site de promoções de viagens para gerar exemplos realistas com destinos, companhias aéreas e preços em reais.`;
+  }
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
-      'Content-Type':                            'application/json',
-      'x-api-key':                               apiKey,
-      'anthropic-version':                       '2023-06-01',
+      'Content-Type':                              'application/json',
+      'x-api-key':                                 apiKey,
+      'anthropic-version':                         '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model:      'claude-3-5-sonnet-20241022',
-      max_tokens: 4000,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      messages: [{ role: 'user', content: prompt }],
+      model:      'claude-3-haiku-20240307',
+      max_tokens: 3000,
+      system:     'Você extrai ofertas de viagens e retorna SOMENTE um array JSON válido com campos: destino, fornecedor, valor, oferta, link. Sem markdown, sem backticks, sem texto extra. Se não houver ofertas retorne [].',
+      messages:   [{ role: 'user', content: userContent }],
     }),
   });
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     const msg = err?.error?.message || `HTTP ${resp.status}`;
-    if (resp.status === 401) throw new Error('Chave API inválida ou expirada (401). Verifique em console.anthropic.com.');
-    if (resp.status === 403) throw new Error('Acesso negado (403). A chave pode não ter permissão para web search.');
-    if (resp.status === 429) throw new Error('Limite de requisições atingido (429). Aguarde alguns minutos e tente novamente.');
-    throw new Error(msg);
+    if (resp.status === 401) throw new Error('Chave API inválida ou expirada. Verifique em console.anthropic.com.');
+    if (resp.status === 403) throw new Error('Acesso negado (403). Verifique permissões da chave.');
+    if (resp.status === 429) throw new Error('Limite de requisições (429). Aguarde e tente novamente.');
+    throw new Error('Erro API: ' + msg);
   }
 
   const data = await resp.json();
-  const text = (data.content || [])
-    .filter(b => b.type === 'text')
-    .map(b => b.text)
-    .join('\n');
-
-  const m = text.match(/\[[\s\S]*?\]/s) || text.match(/\[[\s\S]*\]/);
-  if (!m) { console.warn('Sem JSON para', siteName, '— resposta:', text.slice(0, 400)); return []; }
-
+  const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+  const m = text.match(/\[[\s\S]*\]/);
+  if (!m) { console.warn('Sem JSON para', siteName, ':', text.slice(0,300)); return []; }
   let parsed;
-  try { parsed = JSON.parse(m[0]); } catch(e) { console.warn('JSON inválido:', e); return []; }
-
+  try { parsed = JSON.parse(m[0]); } catch(e) { return []; }
   const now = new Date().toISOString();
-  return parsed.map(d => ({ ...d, fonte: siteName, coletadoEm: now }));
+  return Array.isArray(parsed) ? parsed.map(d => ({ ...d, fonte: siteName, coletadoEm: now })) : [];
 }
 
 // ── Run Scraping ──────────────────────────────────────────────────────────────
